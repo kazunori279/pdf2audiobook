@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html>
+
+<!--
+# Copyright 2020 Google LLC. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+-->
+
+  <head>
+    <base target="_top">
+    
+    <script>
+    
+      var pageNum = 1;
+      var pdf_name = null;
+      var imageUrl = null;
+      var buttons = [];
+      var paraDict = null;
+      
+      //
+      // init sequence
+      //
+      
+      // get image url
+      google.script.run.withSuccessHandler(onImageUrlReturned).getImageUrl();
+      
+      // set image url and get paraDict
+      function onImageUrlReturned(url) {
+        imageUrl = url
+        document.getElementById('page').innerHTML = 'Loading (1/2) ... ';
+        google.script.run.withSuccessHandler(onCSVDownloadEnded).downloadLabels();
+      }
+      
+      function onCSVDownloadEnded() {
+        document.getElementById('page').innerHTML = 'Loading (2/2) ... ';
+        google.script.run.withSuccessHandler(onParaDictReturned).getParaDict();
+      }
+      
+      // set paraDict and show the first page
+      function onParaDictReturned(json) {
+        paraDict = JSON.parse(json);
+        moveTo(0);
+        console.log('paraDict loaded: ' + Object.keys(paraDict).length + ' pages.');
+      }
+
+      //
+      // Annotation button builder
+      //
+      
+      // show annotation buttons on the image
+      function showAnnotationButtons() {
+      
+        // show page image
+        var img = document.getElementById('img');
+        img.style.visibility = 'visible';
+        document.getElementById('prevButton').disabled = pageNum == 1;
+        document.getElementById('nextButton').disabled = false;
+        
+        // show buttons (if available)
+        if (!paraDict) return;
+        var page = getCurrentPage();
+        var paraList = paraDict[page];
+        for (var i = 0; i < paraList.length; i++) {
+          console.log(paraList[i].id);
+          addOneButton(paraList[i], i);
+        }
+      }
+      
+      // returns the current page number in '001' format
+      function getCurrentPage() {
+        return ('000' + pageNum).slice(-3);
+      }
+
+      // add one annotation button
+      function addOneButton(para, zIndex) {
+      
+        // define button color by the label
+        var label = para.label;
+        var color = 'lightgray';
+        if (label == 'body') color = '#f4f9ee';
+        if (label == 'header') color = '#f4deee';
+        if (label == 'caption') color = '#cce3ff';
+
+        // create a button
+        var img = document.getElementById('img');
+        var button = document.createElement('button');
+        button.value = 'button';
+        button.style.position = 'absolute';
+        button.style.left = ((para.pos_x - (para.width / 2.0)) * img.width + 10) + 'px';
+        button.style.top = ((para.pos_y - (para.height / 2.0)) * img.height + 10) + 'px';
+        button.style.width = (para.width * img.width) + 'px';
+        button.style.height = (para.height * img.height) + 'px';
+        button.style.opacity = 0.5;
+        button.style.zIndex = zIndex;
+        button.style.backgroundColor = color;
+        button.onclick = function() {
+          button.disabled = true;
+          toggleLabel(para);
+        }
+        document.body.appendChild(button);
+        buttons.push(button);
+      }
+      
+      // clear all annotation buttons
+      function clearAnnotationButtons() {
+        buttons.forEach(function (button) {
+          document.body.removeChild(button);
+        });
+        buttons = [];
+      }
+      
+      //
+      // UI event handlers
+      //
+      
+      // move to the specified page relative to the current page
+      function moveTo(offset) {
+      
+        // clear buttons
+        clearAnnotationButtons();
+      
+        // move to the specified page
+        pageNum += offset;
+        document.getElementById('page').innerHTML = 'Page: ' + getCurrentPage();
+        var img = document.getElementById('img');
+        img.src = imageUrl.replace('%%page%%', getCurrentPage());
+        
+        // disable UI
+        img.style.visibility = 'hidden';
+        document.getElementById('prevButton').disabled = true;
+        document.getElementById('nextButton').disabled = true;
+      }
+      
+      function toggleLabel(para) {
+      
+        // toggle label
+        if (para.label == 'other') para.label = 'header';
+        else if (para.label == 'header') para.label = 'caption';
+        else if (para.label == 'caption') para.label = 'body';
+        else para.label = 'other';
+        
+        // update buttons
+        clearAnnotationButtons();
+        showAnnotationButtons();
+        
+        // update label on the sheet (after 3 sec delay)
+        para.updated = Date.now();
+        setTimeout(updateLabelOnSheet, 3000, para, para.updated);
+      }
+      
+      function updateLabelOnSheet(para, timestamp) {
+        if (para.updated > timestamp) return; // skip older updates
+        google.script.run.updateLabel(para.id, para.label);
+      }
+      
+    </script>
+  </head>
+  
+  <body>
+    <img src='' id='img' onload='showAnnotationButtons()'/><br/>
+    <div align='left'>
+      <span id='page' style='width:10%;font-size:30px;font-family:sans-serif;padding:30px'></span>
+      <button onclick='moveTo(-1)' id='prevButton' style='width:10%;font-size:30px;padding:10px' disabled>＜</button>
+      <button onclick='moveTo(1)' id='nextButton' style='width:10%;font-size:30px;padding:10px' disabled>＞</button>
+    </div>
+  </body>
+  
+</html>
+
