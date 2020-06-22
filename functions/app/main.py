@@ -41,7 +41,7 @@ ANNOTATION_MODE = False
 
 # AutoML Tables configs
 compute_region = "us-central1"
-model_display_name = "comb_0420_20200420095250"
+model_display_name = "<YOUR MODEL DISPLAY NAME>"
 
 # break length
 SECTION_BREAK = 2  # sec
