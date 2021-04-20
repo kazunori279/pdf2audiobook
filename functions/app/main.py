@@ -37,7 +37,7 @@ from google.cloud import automl_v1beta1 as automl
 from google.protobuf import json_format
 
 # generate PNGs for each page and labeled CSV for annotation
-ANNOTATION_MODE = False
+ANNOTATION_MODE = True
 
 # AutoML Tables configs
 compute_region = "us-central1"
