@@ -43,7 +43,24 @@ ANNOTATION_MODE = False
 compute_region = "us-central1"
 model_display_name = "<YOUR MODEL DISPLAY NAME>"
 
-# break length
+# audio/voice config
+LANGUAGE_CODE = "en-GB"
+PITCH = {
+    "header": 1,
+    "caption": 1,
+    "body": -1.5
+}
+SPEAKING_RATE = {
+    "header": 1,
+    "caption": 1,
+    "body": 1.20
+}
+NAME = {
+    "header": "en-GB-Wavenet-F",
+    "caption": "en-GB-Wavenet-A",
+    "body": "en-GB-Wavenet-D"
+}
+
 SECTION_BREAK = 2  # sec
 CAPTION_BREAK = 1.5  # sec
 
@@ -249,7 +266,7 @@ def p2a_generate_speech(bucket, csv_blob):
 
     # parse prediction results from AutoML
     batch_id, sorted_ids, text_dict, label_dict = parse_prediction_results(
-        bucket, csv_blob
+        csv_blob
     )
 
     # generate mp3 files with the parsed results
@@ -265,9 +282,9 @@ def p2a_generate_speech(bucket, csv_blob):
         b.delete()
 
 
-def parse_prediction_results(bucket, csv_blob):
+def parse_prediction_results(csv_blob):
     # parse CSV
-    csv_string = csv_blob.download_as_string().decode("utf-8")
+    csv_string = csv_blob.download_as_string().decode("utf-8", "ignore")
     csv_file = io.StringIO(csv_string)
     reader = csv.DictReader(csv_file)
     text_dict = {}
@@ -298,11 +315,9 @@ def parse_prediction_results(bucket, csv_blob):
     first_id = sorted_ids[0]
 
     # remove the OTHER paras
-    others = ""
-    for id in sorted_ids:
-        if label_dict[id] == LABEL_OTHER:
-            others += text_dict[id] + " "
-            sorted_ids.remove(id)
+    for id in label_dict.copy():
+        if label_dict[id] == 'other':
+            label_dict.pop(id)
 
     # merging subsequent paragraphs
     last_id = None
@@ -340,7 +355,7 @@ def generate_mp3_files(bucket, sorted_ids, text_dict, label_dict):
 
         # split as chunks with <4500 chars each
         if len(ssml) + len(text_dict[id]) > 4500:
-            mp3_blob = generate_mp3_for_ssml(bucket, prev_id, ssml)
+            mp3_blob = generate_mp3_for_ssml(bucket, prev_id, ssml, label_dict[prev_id])
             mp3_blob_list.append(mp3_blob)
             ssml = ""
 
@@ -355,21 +370,25 @@ def generate_mp3_files(bucket, sorted_ids, text_dict, label_dict):
         prev_id = id
 
     # generate speech for the remaining
-    mp3_blob = generate_mp3_for_ssml(bucket, prev_id, ssml)
+    mp3_blob = generate_mp3_for_ssml(bucket, prev_id, ssml, label_dict[id])
     mp3_blob_list.append(mp3_blob)
     return mp3_blob_list
 
 
-def generate_mp3_for_ssml(bucket, id, ssml):
+def generate_mp3_for_ssml(bucket, id, ssml, label):
 
     # set text and configs
     ssml = "<speak>\n" + ssml + "</speak>\n"
     synthesis_input = texttospeech.types.SynthesisInput(ssml=ssml)
     voice = texttospeech.types.VoiceSelectionParams(
-        language_code="ja-JP", ssml_gender=texttospeech.enums.SsmlVoiceGender.FEMALE
+        language_code=LANGUAGE_CODE,
+        # ssml_gender=texttospeech.enums.SsmlVoiceGender.FEMALE,
+        name=NAME[label]
     )
     audio_config = texttospeech.types.AudioConfig(
-        audio_encoding=texttospeech.enums.AudioEncoding.MP3, speaking_rate=1.5
+        audio_encoding=texttospeech.enums.AudioEncoding.MP3,
+        speaking_rate=SPEAKING_RATE[label],
+        pitch=PITCH[label],
     )
 
     # generate speech
@@ -425,12 +444,12 @@ def p2a_generate_labels(bucket, automl_csv_blob):
 
     # parse prediction results from AutoML
     batch_id, sorted_ids, text_dict, label_dict = parse_prediction_results(
-        bucket, automl_csv_blob
+        automl_csv_blob
     )
 
     # open features CSV
     features_blob = bucket.get_blob(batch_id + "-features.csv")
-    features_string = features_blob.download_as_string().decode("utf-8")
+    features_string = features_blob.download_as_string().decode("utf-8", 'ignore')
     csv = ""
     if batch_id.endswith("001"):  # add csv header only for the first csv file
         csv += FEATURE_CSV_HEADER + ",label\n"
