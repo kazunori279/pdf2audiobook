@@ -21,7 +21,10 @@
 var PDF_NAME = '<YOUR PDF FILE NAME>';
 var BUCKET_NAME = '<YOUR BUCKET NAME>';
 var SHEET_ID = '<YOUR SHEET ID>';
-var TOKEN = "<YOUR OAUTH2 TOKEN>";
+// var TOKEN = "<YOUR OAUTH2 TOKEN>";
+
+var CLIENT_ID = '<YOUR-CLIENT-ID>';
+var CLIENT_SECRET = '<YOUR-CLIENT-SECRET>';
 
 //
 // init
@@ -45,16 +48,6 @@ function getHeaderList() {
 }
 
 //
-// doGet
-//
-
-function doGet(e) {
-  Logger.log(e.parameter);
-  var html = HtmlService.createTemplateFromFile('index');
-  return html.evaluate();
-}
-
-//
 // RPCs
 //
 
@@ -64,29 +57,6 @@ function getImageUrl() {
   return imageUrl;
 }
 
-// download or duplucation
-function authFetch(url, objectSource) {
-  if ( typeof objectSource == "undefined" ) {
-    // normal GET
-    return UrlFetchApp.fetch(url, {
-      method: "GET",
-      headers: {
-        Authorization: 'Bearer '+ TOKEN
-      },
-      'muteHttpExceptions': true,
-      });
-  } else {
-    // copy objectSource to url
-    return UrlFetchApp.fetch(url, {
-      method: "PUT",
-      headers: {
-        Authorization: 'Bearer '+ TOKEN,
-        "x-goog-copy-source": objectSource,
-      },
-      'muteHttpExceptions': true,
-      });
-  }
-}
 
 // download labels CSVs from GCS and create a Sheet
 function downloadLabels() {
