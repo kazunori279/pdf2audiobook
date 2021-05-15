@@ -1,22 +1,25 @@
-# pdf2audiobook
+# PDF2Audiobook
 
-See this [video](https://www.youtube.com/watch?v=_JVRew5zXBQ) for learning how the tool works.
+Check out my [blog](https://konfido.github.io/Convert%20PDFs%20to%20Audiobooks%20with%20Machine%20Learning/) for step-by-step guide and learning how this tool works.
 
-## pdf2audiobook training process
+And see the original articles ([Kazunori](https://cloud.google.com/blog/ja/products/ai-machine-learning/practical-machine-learning-with-automl-series-3), [Morkowitz](https://daleonai.com/pdf-to-audiobook)) and videos ([Kazunori](https://www.youtube.com/watch?v=_JVRew5zXBQ), [Markowitz](https://www.youtube.com/watch?v=q-nvbuc59Po)) for reference.
 
-1. Create a training data as CSV file
-2. Train a AutoML Tables model
-3. use pdf2audiobook for generating mp3 files
 
-## pdf2audiobook usage
 
-Register the code with Cloud Functions the following command. You need to create the bucket beforehand as a workspace for pdf2audiobook.
+## Main process
 
-`gcloud functions deploy p2a_gcs_trigger --runtime python37 --trigger-bucket <bucket> --memory=2048MB --timeout=540`
+1. Set `ANNOTATION_MODE = True` (/functions) for generating annotation data
+2. Use annotation tool (/apps-script) to create training data
+3. Train a AutoML Tables model
+4. Set `ANNOTATION_MODE = False` for generating mp3 files
 
-## Annotation
 
-- Annotation mode usage: to use pdf2audiobook for generating annotation data, set `ANNOTATION_MODE = True` and re-register the code with Cloud Funtions, so the tool will generate CSV files for annotation instead of mp3 files.
 
-- Annotation tool: use /apps-script code for running the annotation tool with Google Apps Script
+## Deploy with command line
+
+You can operate entirely in the web editors, but if you prefer registering and deploying with command line, use the following command. You need to create the bucket beforehand as a workspace for PDF2Audiobook.
+
+`gcloud functions deploy <FUNCTION_NAME> --runtime python37 --trigger-bucket <BUCKET> --memory=2048MB --timeout=540`
+
+
 
