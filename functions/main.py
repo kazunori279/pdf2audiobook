@@ -316,7 +316,7 @@ def parse_prediction_results(csv_blob):
 
     # remove the OTHER paras
     for id in label_dict.copy():
-        if label_dict[id] == 'other':
+        if label_dict[id] == LABEL_OTHER:
             label_dict.pop(id)
 
     # merging subsequent paragraphs
