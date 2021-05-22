@@ -1,6 +1,6 @@
 # PDF2Audiobook
 
-Check out my [blog](https://konfido.github.io/Convert%20PDFs%20to%20Audiobooks%20with%20Machine%20Learning/) for step-by-step guide and learning how this tool works.
+Check out my [blog](https://konfido.github.io/Convert-PDFs-to-Audiobooks-with-Machine-Learning/) for step-by-step guide and learning how this tool works.
 
 And see the original articles ([Kazunori](https://cloud.google.com/blog/ja/products/ai-machine-learning/practical-machine-learning-with-automl-series-3), [Morkowitz](https://daleonai.com/pdf-to-audiobook)) and videos ([Kazunori](https://www.youtube.com/watch?v=_JVRew5zXBQ), [Markowitz](https://www.youtube.com/watch?v=q-nvbuc59Po)) for reference.
 
