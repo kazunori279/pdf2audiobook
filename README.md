@@ -9,9 +9,10 @@ And see the original articles ([Kazunori](https://cloud.google.com/blog/ja/produ
 ## Main process
 
 1. Set `ANNOTATION_MODE = True` (/functions) for generating annotation data
-2. Use annotation tool (/apps-script) to create training data
-3. Train a AutoML Tables model
-4. Set `ANNOTATION_MODE = False` for generating mp3 files
+2. By default, the [pdfminer.six](https://github.com/pdfminer/pdfminer.six) is used to extract the content of pdf files, you can set `NO_OCR=False` to use Google OCR instead.
+3. Use annotation tool (/apps-script) to create training data
+4. Train a AutoML Tables model
+5. Set `ANNOTATION_MODE = False` for generating mp3 files
 
 
 

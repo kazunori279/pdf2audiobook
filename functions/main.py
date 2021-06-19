@@ -28,6 +28,9 @@ import locale
 import glob
 import time
 
+from pdfminer.high_level import extract_pages
+from pdfminer.layout import LTTextContainer, LTFigure
+from pdfminer.pdfpage import PDFPage
 from pydub import AudioSegment
 
 from google.cloud import storage
@@ -38,6 +41,8 @@ from google.protobuf import json_format
 
 # generate PNGs for each page and labeled CSV for annotation
 ANNOTATION_MODE = False
+# extract context by using pdfminer.six other than Google OCR
+NO_OCR = True
 
 # AutoML Tables configs
 compute_region = "us-central1"
@@ -92,13 +97,23 @@ def p2a_gcs_trigger(file, context):
         file_blob = bucket.get_blob(file_name)
         time.sleep(1)
 
-    # OCR
+    # extract pdf content
     if file_name.lower().endswith(".pdf"):
-        p2a_ocr_pdf(bucket, file_blob)
+        if NO_OCR:
+            p2a_pdf_miner(bucket, file_blob)
+        else:
+            p2a_ocr_pdf(bucket, file_blob)
+        # convert PDF to PNG files for annotation
+        if ANNOTATION_MODE:
+            convert_pdf2png(bucket, file_blob)
+
+    # convert ocr result to feature.csv
+    if not NO_OCR and file_name.lower().endswith(".json"):
+        ocr_json2csv(bucket, file_blob)
         return
 
     # predict
-    if file_name.lower().endswith(".json"):
+    if file_name.lower().endswith("features.csv"):
         p2a_predict(bucket, file_blob)
         return
 
@@ -109,6 +124,54 @@ def p2a_gcs_trigger(file, context):
         else:
             p2a_generate_speech(bucket, file_blob)
         return
+
+
+def p2a_pdf_miner(bucket, pdf_blob):
+    csv = FEATURE_CSV_HEADER + "\n"
+    pdf_id = pdf_blob.name.replace(".pdf", "")[:4]
+    pdf_path = '/tmp/'+pdf_blob.name
+    pdf_blob.download_to_filename(pdf_path)
+
+    first_page = PDFPage.get_pages(open(pdf_path, 'rb'), pagenos=[0])
+    for i in first_page:
+        mediabox = i.mediabox
+    page_width = mediabox[2]
+    page_height = mediabox[3]
+
+    for page_layout in extract_pages(pdf_path):
+        for element in page_layout:
+            if isinstance(element, LTTextContainer) and not isinstance(element, LTFigure):
+                para_id = "{}-{:03}-{:03}".format(pdf_id,
+                                                  page_layout.pageid, element.index)
+                text = element.get_text().replace('-\n', '').strip().replace('\n', ' ').replace('"', "")
+                width = element.width/page_width
+                height = element.height/page_height
+                area = width*height
+                chars = 1 if len(text)==0 else len(text)
+                char_size = area/chars
+                pos_x = (element.x0/page_width) + width/2.0
+                pos_y = 1-((element.y0/page_height) + height/2.0)
+                aspect = width/height
+                layout = "h" if aspect > 1 else "v"
+                csv += '{},"{}",{},{:.6f},{:.6f},{:.6f},{:.6f},{:.6f},{:.6f},{:.6f},{}\n'.format(
+                    para_id,
+                    text,
+                    chars,
+                    width,
+                    height,
+                    area,
+                    char_size,
+                    pos_x,
+                    pos_y,
+                    aspect,
+                    layout,
+                )
+    # save the feature CSV file for prediction
+    feature_file_name = "{}-{:03}-features.csv".format(pdf_id, 1)
+    feature_blob = bucket.blob(feature_file_name)
+    feature_blob.upload_from_string(csv)
+    print("Feature CSV file saved: {}".format(feature_file_name))
+    return
 
 
 def p2a_ocr_pdf(bucket, pdf_blob):
@@ -138,13 +201,8 @@ def p2a_ocr_pdf(bucket, pdf_blob):
     async_response = vision_client.async_batch_annotate_files(requests=[async_request])
     print("Started OCR for file {}".format(pdf_blob.name))
 
-    # convert PDF to PNG files for annotation
-    if ANNOTATION_MODE:
-        convert_pdf2png(bucket, pdf_blob)
 
-
-def p2a_predict(bucket, json_blob):
-
+def ocr_json2csv(bucket, json_blob):
     # get pdf id and first page number
     m = re.match("(.*).output-([0-9]+)-.*", json_blob.name)
     pdf_id = m.group(1)
@@ -161,6 +219,9 @@ def p2a_predict(bucket, json_blob):
     print("Feature CSV file saved: {}".format(feature_file_name))
     json_blob.delete()
 
+
+def p2a_predict(bucket, feature_blob):
+    feature_file_name = feature_blob.name
     # AutoML configs
     gcs_input_uris = ["gs://{}/{}".format(bucket.name, feature_file_name)]
     gcs_output_uri = "gs://{}".format(bucket.name)

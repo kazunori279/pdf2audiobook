@@ -78,12 +78,13 @@ function downloadLabels() {
     }
     else if (respLabel.getResponseCode() == 404) {
       // Exist feature file, forge a '...-labels.csv' file
-      var objectSource = BUCKET_NAME + '/' + batchId + '-features.csv'
-      var resp2 = authFetch(urlLabel, objectSource);
-      csv += resp2.getContentText('UTF-8');
+      // var objectSource = BUCKET_NAME + '/' + batchId + '-features.csv'
+      // authFetch(urlLabel, objectSource);
+      // csv += authFetch(urlLabel).getContentText('UTF-8');
+      csv += respFeature.getContentText('UTF-8')
     }
     else if (respLabel.getResponseCode() == 200) {
-      // Already forged a label file
+      // Already forged/predicted a label file
       csv += respLabel.getContentText('UTF-8');
     }
     else {
