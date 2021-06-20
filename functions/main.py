@@ -378,22 +378,20 @@ def parse_prediction_results(csv_blob):
     # remove the OTHER paras
     for id in label_dict.copy():
         if label_dict[id] == LABEL_OTHER:
-            label_dict.pop(id)
+            # keep label_dict untouched for p2a_generate_labels
+            # label_dict.pop(id)
+            # clean redundant sorted_ids for p2a_generate_speech
+            sorted_ids.remove(id)
 
     # merging subsequent paragraphs
     last_id = None
     period_pattern = re.compile(r"^.*[.。」）)”]$")
-    for id in sorted_ids:
+    for id in sorted_ids.copy():
         if last_id:
-            is_bodypairs = (
-                label_dict[id] == LABEL_BODY and label_dict[last_id] == LABEL_BODY
-            )
-            is_captpairs = (
-                label_dict[id] == LABEL_CAPTION and label_dict[last_id] == LABEL_CAPTION
-            )
-            is_lastbody_nopediod = not period_pattern.match(text_dict[last_id])
-            if (is_bodypairs and is_lastbody_nopediod) or is_captpairs:
-                text_dict[id] = text_dict[last_id] + text_dict[id]
+            is_pairs = (label_dict[id] == label_dict[last_id])
+            is_last_nopediod = not period_pattern.match(text_dict[last_id])
+            if (is_pairs and is_last_nopediod):
+                text_dict[id] = text_dict[last_id] + " " +text_dict[id]
                 sorted_ids.remove(last_id)
         last_id = id
 
@@ -415,7 +413,7 @@ def generate_mp3_files(bucket, sorted_ids, text_dict, label_dict):
     for id in sorted_ids:
 
         # split as chunks with <4500 chars each
-        if len(ssml) + len(text_dict[id]) > 4500:
+        if (prev_id!=None and label_dict[id]!=label_dict[prev_id]) or len(ssml)+len(text_dict[id])>4500:
             mp3_blob = generate_mp3_for_ssml(bucket, prev_id, ssml, label_dict[prev_id])
             mp3_blob_list.append(mp3_blob)
             ssml = ""

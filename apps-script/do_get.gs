@@ -72,24 +72,15 @@ function downloadLabels() {
     var respFeature = authFetch(urlFeature)
     var respLabel = authFetch(urlLabel)
 
-    if (respFeature.getResponseCode() !== 200) {
-      // No such feature file
-      break;
-    }
-    else if (respLabel.getResponseCode() == 404) {
-      // Exist feature file, forge a '...-labels.csv' file
-      // var objectSource = BUCKET_NAME + '/' + batchId + '-features.csv'
-      // authFetch(urlLabel, objectSource);
-      // csv += authFetch(urlLabel).getContentText('UTF-8');
-      csv += respFeature.getContentText('UTF-8')
-    }
-    else if (respLabel.getResponseCode() == 200) {
-      // Already forged/predicted a label file
+    if (respLabel.getResponseCode() == 200 ) {
+      // Already predicted a label file
       csv += respLabel.getContentText('UTF-8');
-    }
-    else {
-      logging(respLabel.getContentText());
-      logging(respFeature.getContentText());
+    } else if (respFeature.getResponseCode() == 200) {
+      // Exist feature file, forge a '...-labels.csv' file
+      csv += respFeature.getContentText('UTF-8')
+    } else {
+      Logger.log(respLabel.getContentText());
+      Logger.log(respFeature.getContentText());
       break;
     }
   }
