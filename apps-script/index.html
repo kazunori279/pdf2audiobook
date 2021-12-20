@@ -19,34 +19,34 @@
 
   <head>
     <base target="_top">
-    
+
     <script>
-    
+
       var pageNum = 1;
       var pdf_name = null;
       var imageUrl = null;
       var buttons = [];
       var paraDict = null;
-      
+
       //
       // init sequence
       //
-      
+
       // get image url
       google.script.run.withSuccessHandler(onImageUrlReturned).getImageUrl();
-      
+
       // set image url and get paraDict
       function onImageUrlReturned(url) {
         imageUrl = url
         document.getElementById('page').innerHTML = 'Loading (1/2) ... ';
         google.script.run.withSuccessHandler(onCSVDownloadEnded).downloadLabels();
       }
-      
+
       function onCSVDownloadEnded() {
         document.getElementById('page').innerHTML = 'Loading (2/2) ... ';
         google.script.run.withSuccessHandler(onParaDictReturned).getParaDict();
       }
-      
+
       // set paraDict and show the first page
       function onParaDictReturned(json) {
         paraDict = JSON.parse(json);
@@ -57,16 +57,16 @@
       //
       // Annotation button builder
       //
-      
+
       // show annotation buttons on the image
       function showAnnotationButtons() {
-      
+
         // show page image
         var img = document.getElementById('img');
         img.style.visibility = 'visible';
         document.getElementById('prevButton').disabled = pageNum == 1;
         document.getElementById('nextButton').disabled = false;
-        
+
         // show buttons (if available)
         if (!paraDict) return;
         var page = getCurrentPage();
@@ -76,7 +76,7 @@
           addOneButton(paraList[i], i);
         }
       }
-      
+
       // returns the current page number in '001' format
       function getCurrentPage() {
         return ('000' + pageNum).slice(-3);
@@ -84,7 +84,7 @@
 
       // add one annotation button
       function addOneButton(para, zIndex) {
-      
+
         // define button color by the label
         var label = para.label;
         var color = 'lightgray';
@@ -111,7 +111,7 @@
         document.body.appendChild(button);
         buttons.push(button);
       }
-      
+
       // clear all annotation buttons
       function clearAnnotationButtons() {
         buttons.forEach(function (button) {
@@ -119,54 +119,54 @@
         });
         buttons = [];
       }
-      
+
       //
       // UI event handlers
       //
-      
+
       // move to the specified page relative to the current page
       function moveTo(offset) {
-      
+
         // clear buttons
         clearAnnotationButtons();
-      
+
         // move to the specified page
         pageNum += offset;
         document.getElementById('page').innerHTML = 'Page: ' + getCurrentPage();
         var img = document.getElementById('img');
         img.src = imageUrl.replace('%%page%%', getCurrentPage());
-        
+
         // disable UI
         img.style.visibility = 'hidden';
         document.getElementById('prevButton').disabled = true;
         document.getElementById('nextButton').disabled = true;
       }
-      
+
       function toggleLabel(para) {
-      
+
         // toggle label
         if (para.label == 'other') para.label = 'header';
         else if (para.label == 'header') para.label = 'caption';
         else if (para.label == 'caption') para.label = 'body';
         else para.label = 'other';
-        
+
         // update buttons
         clearAnnotationButtons();
         showAnnotationButtons();
-        
+
         // update label on the sheet (after 3 sec delay)
         para.updated = Date.now();
         setTimeout(updateLabelOnSheet, 3000, para, para.updated);
       }
-      
+
       function updateLabelOnSheet(para, timestamp) {
         if (para.updated > timestamp) return; // skip older updates
         google.script.run.updateLabel(para.id, para.label);
       }
-      
+
     </script>
   </head>
-  
+
   <body>
     <img src='' id='img' onload='showAnnotationButtons()'/><br/>
     <div align='left'>
@@ -175,6 +175,5 @@
       <button onclick='moveTo(1)' id='nextButton' style='width:10%;font-size:30px;padding:10px' disabled>＞</button>
     </div>
   </body>
-  
-</html>
 
+</html>

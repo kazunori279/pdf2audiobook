@@ -8,3 +8,4 @@ google-auth-oauthlib
 ffmpeg-python
 pydub
 ghostscript
+pdfminer.six

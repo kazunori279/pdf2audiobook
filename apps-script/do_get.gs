@@ -21,6 +21,10 @@
 var PDF_NAME = '<YOUR PDF FILE NAME>';
 var BUCKET_NAME = '<YOUR BUCKET NAME>';
 var SHEET_ID = '<YOUR SHEET ID>';
+// var TOKEN = "<YOUR OAUTH2 TOKEN>";
+
+var CLIENT_ID = '<YOUR-CLIENT-ID>';
+var CLIENT_SECRET = '<YOUR-CLIENT-SECRET>';
 
 //
 // init
@@ -44,15 +48,6 @@ function getHeaderList() {
 }
 
 //
-// doGet
-//
-
-function doGet(e) {
-  var html = HtmlService.createTemplateFromFile('index');
-  return html.evaluate();
-}
-
-//
 // RPCs
 //
 
@@ -62,28 +57,46 @@ function getImageUrl() {
   return imageUrl;
 }
 
+
 // download labels CSVs from GCS and create a Sheet
 function downloadLabels() {
 
   // download all CSV files from GCS
-  var csv = '';  
-  for (var i = 1; true; i += 100) {    
-    
+  var csv = '';
+  for (var i = 1; true; i += 100) {
+
     // build CSV URL like 'https://storage.googleapis.com/foo-bucket/foo-001-labels.csv'
     var batchId = pdfId + '-' + ('000' + i).slice(-3);
-    var url = bucketUrl + batchId + '-labels.csv';
-    
-    // download the csv
-    var resp = UrlFetchApp.fetch(url, {'muteHttpExceptions': true});
-    if (resp.getResponseCode() == 200) {    
-      csv += resp.getContentText('UTF-8');
+    var urlFeature = bucketUrl + batchId + '-features.csv'
+    var urlLabel = bucketUrl + batchId + '-labels.csv';
+    var respFeature = authFetch(urlFeature)
+    var respLabel = authFetch(urlLabel)
+
+    if (respLabel.getResponseCode() == 200 ) {
+      // Already predicted a label file
+      csv += respLabel.getContentText('UTF-8');
+    } else if (respFeature.getResponseCode() == 200) {
+      // Exist feature file, forge a '...-labels.csv' file
+      csv += respFeature.getContentText('UTF-8')
     } else {
+      Logger.log(respLabel.getContentText());
+      Logger.log(respFeature.getContentText());
       break;
     }
   }
-  
+
   // parse CSV
   var labelData = Utilities.parseCsv(csv);
+
+  // Add a 'label' column if it not exist
+  if (!labelData[0].includes("label")) {
+    // Set "label" to "body" if "text".length>100
+    labelData.map(x => {
+      x.push((x[1].length>100)?"body":"other");
+      return x;
+    });
+    labelData[0][labelData[0].length-1] = "label"
+  }
 
   // rename old sheet if needed
   var oldSheet = getSheet();
@@ -112,7 +125,7 @@ function updateLabel(id, label) {
 
 // returns paraDict as JSON encoded string
 function getParaDict() {
-  
+
   // check if the sheet is available
   if (getSheet() == null) {
     Logger.log('The sheet for ' + pdfId + ' is not available');
@@ -121,31 +134,31 @@ function getParaDict() {
 
   // build paraDict
   var paraDict = buildParaDictFromSheet();
-  
+
   // return as JSON string
   Logger.log('paraDict returned.');
   return JSON.stringify(paraDict);
 }
 
-function buildParaDictFromSheet() {  
-  
+function buildParaDictFromSheet() {
+
   // read rows from the sheet
   var paraDict = new Object();
   var sheet = getSheet();
   var headerList = getHeaderList();
   var vals = sheet.getRange(2, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues();
-  
+
   // build page dict
   var pageCount = 0;
   var paraCount = 0;
   vals.forEach(function(row) {
-    
+
     // parse feature values
     var features = new Object();
     for (var i in row) {
       features[headerList[i]] = row[i];
     }
-    
+
     // parse id
     var m = features.id.match(/(.*)-([0-9]+)-([0-9]+)/);
     if (!m) return;
@@ -159,16 +172,15 @@ function buildParaDictFromSheet() {
       pageCount++;
     }
     paraDict[page].push(features);
-    
+
     // sort by the area size of para
     paraDict[page].sort(function (a, b) {
       return a.area < b.area ? 1 : (a.area == b.area ? 0 : -1);
     });
     paraCount++;
   });
-  
+
   Logger.log('Built paraDict with ' + pageCount + ' pages, ' + paraCount + ' paragraphs.');
   return paraDict
 
 }
-

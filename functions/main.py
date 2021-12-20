@@ -28,6 +28,9 @@ import locale
 import glob
 import time
 
+from pdfminer.high_level import extract_pages
+from pdfminer.layout import LTTextContainer, LTFigure
+from pdfminer.pdfpage import PDFPage
 from pydub import AudioSegment
 
 from google.cloud import storage
@@ -38,12 +41,31 @@ from google.protobuf import json_format
 
 # generate PNGs for each page and labeled CSV for annotation
 ANNOTATION_MODE = False
+# extract context by using pdfminer.six other than Google OCR
+NO_OCR = True
 
 # AutoML Tables configs
 compute_region = "us-central1"
 model_display_name = "<YOUR MODEL DISPLAY NAME>"
 
-# break length
+# audio/voice config
+LANGUAGE_CODE = "en-GB"
+PITCH = {
+    "header": 1,
+    "caption": 1,
+    "body": -1.5
+}
+SPEAKING_RATE = {
+    "header": 1,
+    "caption": 1,
+    "body": 1.20
+}
+NAME = {
+    "header": "en-GB-Wavenet-F",
+    "caption": "en-GB-Wavenet-A",
+    "body": "en-GB-Wavenet-D"
+}
+
 SECTION_BREAK = 2  # sec
 CAPTION_BREAK = 1.5  # sec
 
@@ -75,13 +97,23 @@ def p2a_gcs_trigger(file, context):
         file_blob = bucket.get_blob(file_name)
         time.sleep(1)
 
-    # OCR
+    # extract pdf content
     if file_name.lower().endswith(".pdf"):
-        p2a_ocr_pdf(bucket, file_blob)
+        if NO_OCR:
+            p2a_pdf_miner(bucket, file_blob)
+        else:
+            p2a_ocr_pdf(bucket, file_blob)
+        # convert PDF to PNG files for annotation
+        if ANNOTATION_MODE:
+            convert_pdf2png(bucket, file_blob)
+
+    # convert ocr result to feature.csv
+    if not NO_OCR and file_name.lower().endswith(".json"):
+        ocr_json2csv(bucket, file_blob)
         return
 
     # predict
-    if file_name.lower().endswith(".json"):
+    if file_name.lower().endswith("features.csv"):
         p2a_predict(bucket, file_blob)
         return
 
@@ -92,6 +124,54 @@ def p2a_gcs_trigger(file, context):
         else:
             p2a_generate_speech(bucket, file_blob)
         return
+
+
+def p2a_pdf_miner(bucket, pdf_blob):
+    csv = FEATURE_CSV_HEADER + "\n"
+    pdf_id = pdf_blob.name.replace(".pdf", "")[:4]
+    pdf_path = '/tmp/'+pdf_blob.name
+    pdf_blob.download_to_filename(pdf_path)
+
+    first_page = PDFPage.get_pages(open(pdf_path, 'rb'), pagenos=[0])
+    for i in first_page:
+        mediabox = i.mediabox
+    page_width = mediabox[2]
+    page_height = mediabox[3]
+
+    for page_layout in extract_pages(pdf_path):
+        for element in page_layout:
+            if isinstance(element, LTTextContainer) and not isinstance(element, LTFigure):
+                para_id = "{}-{:03}-{:03}".format(pdf_id,
+                                                  page_layout.pageid, element.index)
+                text = element.get_text().replace('-\n', '').strip().replace('\n', ' ').replace('"', "")
+                width = element.width/page_width
+                height = element.height/page_height
+                area = width*height
+                chars = 1 if len(text)==0 else len(text)
+                char_size = area/chars
+                pos_x = (element.x0/page_width) + width/2.0
+                pos_y = 1-((element.y0/page_height) + height/2.0)
+                aspect = width/height
+                layout = "h" if aspect > 1 else "v"
+                csv += '{},"{}",{},{:.6f},{:.6f},{:.6f},{:.6f},{:.6f},{:.6f},{:.6f},{}\n'.format(
+                    para_id,
+                    text,
+                    chars,
+                    width,
+                    height,
+                    area,
+                    char_size,
+                    pos_x,
+                    pos_y,
+                    aspect,
+                    layout,
+                )
+    # save the feature CSV file for prediction
+    feature_file_name = "{}-{:03}-features.csv".format(pdf_id, 1)
+    feature_blob = bucket.blob(feature_file_name)
+    feature_blob.upload_from_string(csv)
+    print("Feature CSV file saved: {}".format(feature_file_name))
+    return
 
 
 def p2a_ocr_pdf(bucket, pdf_blob):
@@ -121,13 +201,8 @@ def p2a_ocr_pdf(bucket, pdf_blob):
     async_response = vision_client.async_batch_annotate_files(requests=[async_request])
     print("Started OCR for file {}".format(pdf_blob.name))
 
-    # convert PDF to PNG files for annotation
-    if ANNOTATION_MODE:
-        convert_pdf2png(bucket, pdf_blob)
 
-
-def p2a_predict(bucket, json_blob):
-
+def ocr_json2csv(bucket, json_blob):
     # get pdf id and first page number
     m = re.match("(.*).output-([0-9]+)-.*", json_blob.name)
     pdf_id = m.group(1)
@@ -144,6 +219,9 @@ def p2a_predict(bucket, json_blob):
     print("Feature CSV file saved: {}".format(feature_file_name))
     json_blob.delete()
 
+
+def p2a_predict(bucket, feature_blob):
+    feature_file_name = feature_blob.name
     # AutoML configs
     gcs_input_uris = ["gs://{}/{}".format(bucket.name, feature_file_name)]
     gcs_output_uri = "gs://{}".format(bucket.name)
@@ -249,7 +327,7 @@ def p2a_generate_speech(bucket, csv_blob):
 
     # parse prediction results from AutoML
     batch_id, sorted_ids, text_dict, label_dict = parse_prediction_results(
-        bucket, csv_blob
+        csv_blob
     )
 
     # generate mp3 files with the parsed results
@@ -265,9 +343,9 @@ def p2a_generate_speech(bucket, csv_blob):
         b.delete()
 
 
-def parse_prediction_results(bucket, csv_blob):
+def parse_prediction_results(csv_blob):
     # parse CSV
-    csv_string = csv_blob.download_as_string().decode("utf-8")
+    csv_string = csv_blob.download_as_string().decode("utf-8", "ignore")
     csv_file = io.StringIO(csv_string)
     reader = csv.DictReader(csv_file)
     text_dict = {}
@@ -298,26 +376,22 @@ def parse_prediction_results(bucket, csv_blob):
     first_id = sorted_ids[0]
 
     # remove the OTHER paras
-    others = ""
-    for id in sorted_ids:
+    for id in label_dict.copy():
         if label_dict[id] == LABEL_OTHER:
-            others += text_dict[id] + " "
+            # keep label_dict untouched for p2a_generate_labels
+            # label_dict.pop(id)
+            # clean redundant sorted_ids for p2a_generate_speech
             sorted_ids.remove(id)
 
     # merging subsequent paragraphs
     last_id = None
     period_pattern = re.compile(r"^.*[.。」）)”]$")
-    for id in sorted_ids:
+    for id in sorted_ids.copy():
         if last_id:
-            is_bodypairs = (
-                label_dict[id] == LABEL_BODY and label_dict[last_id] == LABEL_BODY
-            )
-            is_captpairs = (
-                label_dict[id] == LABEL_CAPTION and label_dict[last_id] == LABEL_CAPTION
-            )
-            is_lastbody_nopediod = not period_pattern.match(text_dict[last_id])
-            if (is_bodypairs and is_lastbody_nopediod) or is_captpairs:
-                text_dict[id] = text_dict[last_id] + text_dict[id]
+            is_pairs = (label_dict[id] == label_dict[last_id])
+            is_last_nopediod = not period_pattern.match(text_dict[last_id])
+            if (is_pairs and is_last_nopediod):
+                text_dict[id] = text_dict[last_id] + " " +text_dict[id]
                 sorted_ids.remove(last_id)
         last_id = id
 
@@ -339,8 +413,8 @@ def generate_mp3_files(bucket, sorted_ids, text_dict, label_dict):
     for id in sorted_ids:
 
         # split as chunks with <4500 chars each
-        if len(ssml) + len(text_dict[id]) > 4500:
-            mp3_blob = generate_mp3_for_ssml(bucket, prev_id, ssml)
+        if (prev_id!=None and label_dict[id]!=label_dict[prev_id]) or len(ssml)+len(text_dict[id])>4500:
+            mp3_blob = generate_mp3_for_ssml(bucket, prev_id, ssml, label_dict[prev_id])
             mp3_blob_list.append(mp3_blob)
             ssml = ""
 
@@ -355,21 +429,25 @@ def generate_mp3_files(bucket, sorted_ids, text_dict, label_dict):
         prev_id = id
 
     # generate speech for the remaining
-    mp3_blob = generate_mp3_for_ssml(bucket, prev_id, ssml)
+    mp3_blob = generate_mp3_for_ssml(bucket, prev_id, ssml, label_dict[id])
     mp3_blob_list.append(mp3_blob)
     return mp3_blob_list
 
 
-def generate_mp3_for_ssml(bucket, id, ssml):
+def generate_mp3_for_ssml(bucket, id, ssml, label):
 
     # set text and configs
     ssml = "<speak>\n" + ssml + "</speak>\n"
     synthesis_input = texttospeech.types.SynthesisInput(ssml=ssml)
     voice = texttospeech.types.VoiceSelectionParams(
-        language_code="ja-JP", ssml_gender=texttospeech.enums.SsmlVoiceGender.FEMALE
+        language_code=LANGUAGE_CODE,
+        # ssml_gender=texttospeech.enums.SsmlVoiceGender.FEMALE,
+        name=NAME[label]
     )
     audio_config = texttospeech.types.AudioConfig(
-        audio_encoding=texttospeech.enums.AudioEncoding.MP3, speaking_rate=1.5
+        audio_encoding=texttospeech.enums.AudioEncoding.MP3,
+        speaking_rate=SPEAKING_RATE[label],
+        pitch=PITCH[label],
     )
 
     # generate speech
@@ -425,12 +503,12 @@ def p2a_generate_labels(bucket, automl_csv_blob):
 
     # parse prediction results from AutoML
     batch_id, sorted_ids, text_dict, label_dict = parse_prediction_results(
-        bucket, automl_csv_blob
+        automl_csv_blob
     )
 
     # open features CSV
     features_blob = bucket.get_blob(batch_id + "-features.csv")
-    features_string = features_blob.download_as_string().decode("utf-8")
+    features_string = features_blob.download_as_string().decode("utf-8", 'ignore')
     csv = ""
     if batch_id.endswith("001"):  # add csv header only for the first csv file
         csv += FEATURE_CSV_HEADER + ",label\n"
